@@ -73,6 +73,13 @@ AmbedkarGPT-Intern-Task/
 - What role do the shastras play in caste?
 
 ---
+## Example Output 
+User: Your question: What does Ambedkar describe as the real enemy behind caste?
+AmbedkarGPT:According to Ambedkar, the real enemy behind caste is the belief in the shastras. He believes that as long as people hold the shastras as sacred and infallible, they will never be able to get rid of caste.
+
+User; Why does Ambedkar criticize social reformers?
+
+AmbedkarGPT:According to the context, Ambedkar criticizes social reformers because they are merely pruning the leaves and branches of a tree (i.e., addressing symptoms rather than roots), without attacking the root cause of caste, which is the belief in the shastras. He argues that as long as people believe in the sanctity of the shastras, they will never be able to get rid of caste.
 
 ##  Conclusion
 
