@@ -1,5 +1,6 @@
 # ---------------------------------------------------
 # AmbedkarGPT – Robust RAG with ChromaDB + Llama 3
+# (cleaned, defensive, ready-to-run)
 # ---------------------------------------------------
 import os
 import sys
@@ -52,13 +53,19 @@ def chunk_text(text, chunk_size=100):
 def create_embeddings(chunks):
     model = get_embedding_model()
     embeddings = model.encode(chunks)
-    # ensure pure python lists for Chroma
-    try:
-        embeddings = [e.tolist() if hasattr(e, "tolist") else list(e) for e in embeddings]
-    except Exception:
-        # fallback: leave as returned (Chroma often accepts numpy arrays too)
-        pass
-    return embeddings
+
+    # Ensure embeddings are convertible to plain Python lists for Chroma
+    processed = []
+    for emb in embeddings:
+        try:
+            # numpy arrays from sentence-transformers
+            processed.append(emb.tolist())
+        except Exception:
+            try:
+                processed.append(list(emb))
+            except Exception:
+                processed.append(emb)  # hope Chroma accepts it
+    return processed
 
 
 # --------------- STEP 4: SAVE TO CHROMADB -------------
@@ -86,24 +93,29 @@ def retrieve_context(query, top_k=3):
     print("\n=== Retrieving context from DB ===")
 
     model = get_embedding_model()
-    q_emb = model.encode([query])[0]
-    # convert to pure list if numpy
+    q_emb_raw = model.encode([query])[0]
+
+    # convert to plain list
     try:
-        q_emb = q_emb.tolist()
+        q_emb = q_emb_raw.tolist()
     except Exception:
         try:
-            q_emb = list(q_emb)
+            q_emb = list(q_emb_raw)
         except Exception:
-            pass
+            q_emb = q_emb_raw  # last resort
 
     client = chromadb.PersistentClient(path=CHROMA_DB_PATH)
     collection = client.get_collection(COLLECTION_NAME)
 
-    # chroma expects a list-of-query-embeddings
-    results = collection.query(
-        query_embeddings=[q_emb],
-        n_results=top_k
-    )
+    # chroma expects a list of query embeddings
+    try:
+        results = collection.query(
+            query_embeddings=[q_emb],
+            n_results=top_k
+        )
+    except Exception as e:
+        print("Chroma query failed:", e)
+        return ""
 
     docs_list = results.get("documents", [[]])
 
@@ -144,6 +156,7 @@ Instructions:
 """
 
     try:
+        # keep call simple and avoid passing parameters the client may not accept
         response = ollama.generate(
             model="llama3",
             prompt=prompt,
@@ -157,41 +170,47 @@ Instructions:
     # ----------------------------
     text = ""
 
-    # if dict-like
     if isinstance(response, dict):
+        # Common keys returned by Ollama client
         for k in ("response", "output", "message", "text", "data"):
-            if k in response and response[k]:
-                text = response[k]
+            val = response.get(k) if isinstance(response, dict) else None
+            if val:
+                text = val
                 break
 
-    # if nothing found, stringify
     if not text:
+        # last resort: stringify the whole response object
         text = str(response)
 
-    # If the returned string contains a response=... style debug blob,
-    # extract the piece after response= and before next metadata token.
-    if "response=" in text:
-        # take after first occurrence
-        text = text.split("response=", 1)[1]
+    # If response contains a debug blob like "response=... context=[...]" extract safely
+    if "response=" in text and "thinking=" in text:
+        # try to extract between response= and the next marker
+        try:
+            text = text.split("response=", 1)[1].split(" thinking=", 1)[0]
+        except Exception:
+            # fallback to earlier logic below
+            pass
+    elif "response=" in text:
+        try:
+            text = text.split("response=", 1)[1]
+        except Exception:
+            pass
 
     # cut at common metadata markers (defensive)
-    for marker in [" thinking=", " context=[", " logprobs=", " model=", " created_at=", " done_reason=", " total_duration=", " eval_count="]:
+    for marker in (" thinking=", " context=[", " logprobs=", " model=", " created_at=", " done_reason=", " total_duration=", " eval_count="):
         if marker in text:
             text = text.split(marker, 1)[0]
 
-    # final cleanup
+    # normalize and clean quotes
     if isinstance(text, (list, dict)):
         text = str(text)
 
     text = text.strip()
-    # remove surrounding quotes if present
     if (text.startswith("'") and text.endswith("'")) or (text.startswith('"') and text.endswith('"')):
         text = text[1:-1].strip()
 
-    # last safe replace
     text = text.replace("'", "").replace('"', "").strip()
 
-    # if still empty, fall back to a message
     if not text:
         return "Unable to parse LLM response (empty)."
 
@@ -213,7 +232,6 @@ def main():
 
         print("\n=== Creating Embeddings ===")
         embeddings = create_embeddings(chunks)
-        # attempt to show shape-like info
         try:
             print("Embedding count:", len(embeddings))
         except Exception:
