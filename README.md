@@ -1,6 +1,6 @@
-## AmbedkarGPT – AI Intern Assignment
+## AmbedkarGPT – AI 
 
-This project is a fully local RAG-based Question Answering system built for the AI Intern Assignment at KalpIT.  
+This project is a fully local RAG-based Question Answering system.  
 It uses **LangChain**, **ChromaDB**, **HuggingFace embeddings**, and **Mistral 7B on Ollama**.
 
 ---
